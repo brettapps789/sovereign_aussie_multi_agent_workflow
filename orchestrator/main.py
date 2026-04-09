@@ -91,10 +91,10 @@ async def get_supabase() -> AsyncClient:
 async def verify_api_key(
     db: AsyncClient,
     workspace_id: str,
-    raw_api_key: str,
+    api_token: str,
 ) -> bool:
     """
-    Check that SHA-256(raw_api_key) matches workspace_secrets.encrypted_value
+    Check that SHA-256(api_token) matches workspace_secrets.encrypted_value
     for the given workspace.  Returns True on match, False otherwise.
 
     Note: the workspace_secrets table stores API-key tokens as SHA-256 hex
@@ -102,7 +102,7 @@ async def verify_api_key(
     system design; the comparison uses hmac.compare_digest to prevent timing
     side-channel attacks.
     """
-    candidate = hashlib.sha256(raw_api_key.encode()).hexdigest()
+    candidate = hashlib.sha256(api_token.encode()).hexdigest()
     result = (
         await db.table("workspace_secrets")
         .select("encrypted_value")
@@ -303,7 +303,8 @@ async def route_agents(
         chosen = parsed
     else:
         # Try common keys
-        chosen = parsed.get("agents") or parsed.get("agent_ids") or list(parsed.values())[0]
+        values = list(parsed.values())
+        chosen = parsed.get("agents") or parsed.get("agent_ids") or (values[0] if values else [])
 
     chosen = [aid for aid in chosen if aid in valid]
     log.info("Auto-routed to agents: %s", chosen)
