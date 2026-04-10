@@ -1,0 +1,31 @@
+{
+  "environment": "production",
+  "project_name": "sovereign_aussie_multi_agent_workflow",
+  "region": "australia-southeast1",
+  "gcp_project_id": "${GCP_PROJECT_ID}",
+  "service_account": "${GCP_SERVICE_ACCOUNT_EMAIL}",
+  "agents": {
+    "manager": {
+      "orders_spreadsheet_id": "${ORDERS_SPREADSHEET_ID}",
+      "notification_email": "${NOTIFICATION_EMAIL}"
+    },
+    "writer": {
+      "sender_email": "${SENDER_EMAIL}",
+      "chat_space_id": "${GOOGLE_CHAT_SPACE_ID}",
+      "slack_channel": "${SLACK_CHANNEL}"
+    },
+    "analyst": {
+      "orders_spreadsheet_id": "${ORDERS_SPREADSHEET_ID}",
+      "subs_spreadsheet_id": "${SUBS_SPREADSHEET_ID}",
+      "default_model": "gemini-1.5-pro"
+    }
+  },
+  "stripe": {
+    "currency": "aud",
+    "webhook_secret": "${STRIPE_WEBHOOK_SECRET}"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "json"
+  }
+}

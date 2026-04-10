@@ -1,0 +1,61 @@
+---
+title: Sovereign Aussie Multi-Agent Workflow — System Interface
+---
+flowchart TD
+    subgraph Entry["Entry Points"]
+        WH["Stripe Webhook"]
+        API["REST API / main.py"]
+        SCHED["Scheduler\n(revenue report)"]
+    end
+
+    subgraph Agents["Agent Layer"]
+        MGR["@Manager Agent\n(Orchestration)"]
+        WRT["@Writer Agent\n(Docs / Comms)"]
+        ANL["@Analyst Agent\n(Vertex AI)"]
+    end
+
+    subgraph MCP["MCP Client Layer"]
+        GWS["GoogleWorkspaceMCP\n(Drive · Gmail · Docs · Sheets)"]
+        COM["CommunicationMCP\n(Google Chat · Slack)"]
+        STR["StripeMCP\n(Payments · Subscriptions)"]
+        VAI["VertexAIMCP\n(Gemini · Embeddings)"]
+    end
+
+    subgraph External["External Services"]
+        STRIPE["Stripe API"]
+        GDRIVE["Google Drive"]
+        GMAIL["Gmail"]
+        GDOCS["Google Docs"]
+        GSHEETS["Google Sheets"]
+        GCHAT["Google Chat"]
+        SLACK["Slack"]
+        VERTEX["Vertex AI\n(Gemini 1.5 Pro)"]
+    end
+
+    %% Entry → Manager
+    WH -->|order event| MGR
+    API -->|new order| MGR
+    SCHED -->|cron trigger| ANL
+
+    %% Manager orchestrates Writer & Analyst
+    MGR -->|create doc + deliver| WRT
+    MGR -->|revenue summary| ANL
+    ANL -->|report text| WRT
+
+    %% Agent → MCP
+    MGR --> GWS
+    MGR --> STR
+    WRT --> GWS
+    WRT --> COM
+    ANL --> GWS
+    ANL --> VAI
+
+    %% MCP → External
+    GWS --> GDRIVE
+    GWS --> GMAIL
+    GWS --> GDOCS
+    GWS --> GSHEETS
+    COM --> GCHAT
+    COM --> SLACK
+    STR --> STRIPE
+    VAI --> VERTEX
