@@ -65,7 +65,7 @@ workspace/
 │   └── agent_mindmap.mmd     # Mermaid agent relationship mindmap
 │
 ├── tests/
-│   └── test_workflow.py      # End-to-end workforce chain test with mocks
+│   └── test_workflow.py      # End-to-end workflow chain test with mocks
 │
 ├── dependency_lock.txt       # Python/Node.js dependency versions
 ├── README.md                 # This file

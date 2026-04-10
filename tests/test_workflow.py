@@ -19,6 +19,31 @@ from typing import Any
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _get_mock_kwarg(call_args: Any, key: str, positional_index: int = 0) -> Any:
+    """
+    Safely extract a named (or positional) argument from a mock's call_args.
+
+    Tries ``call_args.kwargs[key]`` first, then ``call_args[1][key]`` (legacy
+    keyword dict), then ``call_args[0][positional_index]`` (positional tuple).
+    """
+    try:
+        value = call_args.kwargs.get(key)
+        if value is not None:
+            return value
+    except AttributeError:
+        pass
+    try:
+        value = call_args[1].get(key)
+        if value is not None:
+            return value
+    except (TypeError, KeyError, AttributeError):
+        pass
+    try:
+        return call_args[0][positional_index]
+    except (TypeError, IndexError):
+        return None
+
+
 def _make_workspace_mock() -> MagicMock:
     """Return a pre-configured GoogleWorkspaceMCP mock."""
     m = MagicMock()
@@ -120,7 +145,7 @@ class TestManagerAgent(unittest.TestCase):
         )
         self.stripe.payment_intent_create.assert_called_once()
         call_kwargs = self.stripe.payment_intent_create.call_args
-        self.assertEqual(call_kwargs.kwargs.get("amount") or call_kwargs[1].get("amount") or call_kwargs[0][0], 4999)
+        self.assertEqual(_get_mock_kwarg(call_kwargs, "amount", 0), 4999)
         self.assertEqual(ctx.stripe_payment_intent_id, "pi_new")
 
     def test_process_new_order_logs_to_sheet(self) -> None:
@@ -213,7 +238,7 @@ class TestWriterAgent(unittest.TestCase):
         ctx = self._make_ctx()
         result = self.writer.create_ebook_doc(ctx, body_markdown="# Hello\n\nWorld")
         args = self.workspace.docs_create.call_args
-        body_arg = args.kwargs.get("body") or args[1].get("body") or args[0][1]
+        body_arg = _get_mock_kwarg(args, "body", 1)
         self.assertEqual(body_arg, "# Hello\n\nWorld")
 
     def test_append_section(self) -> None:

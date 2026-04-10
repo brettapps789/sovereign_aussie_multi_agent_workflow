@@ -40,10 +40,10 @@ def _load_json(filename: str) -> dict:
 def _resolve_env(value: str) -> str:
     """Expand ``${ENV_VAR}`` placeholders in config strings."""
     if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
-        var = value[2:-1]
-        resolved = os.environ.get(var, "")
+        var_name = value[2:-1]
+        resolved = os.environ.get(var_name, "")
         if not resolved:
-            logger.warning("Environment variable %r is not set.", var)
+            logger.warning("Environment variable %r is not set.", var_name)
         return resolved
     return value
 
