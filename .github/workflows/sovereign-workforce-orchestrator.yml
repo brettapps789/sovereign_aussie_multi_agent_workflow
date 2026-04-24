@@ -1,0 +1,176 @@
+# Fair Dinkum Publishing — Sovereign AI Workforce Orchestrator
+# Owner: Brett Sjoberg | ABN: 63 590 716 023 | Hackham, SA 5163, Australia
+#
+# Triggered by the Supabase Edge Function (orchestrator-trigger) via workflow_dispatch.
+# Accepts a JSON payload, runs the Python orchestrator, then calls the webhook Edge
+# Function (orchestrator-webhook) to report completion back to Supabase.
+
+name: Sovereign Workforce Orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Natural-language task prompt for the agent workforce"
+        required: true
+        type: string
+      project_id:
+        description: "Supabase projects.id"
+        required: true
+        type: string
+      workspace_id:
+        description: "Supabase workspaces.id"
+        required: true
+        type: string
+      task_id:
+        description: "Supabase agent_tasks.id (pre-created by orchestrator-trigger)"
+        required: true
+        type: string
+      agent_ids:
+        description: "Comma-separated agent IDs to target (leave blank for auto-routing)"
+        required: false
+        type: string
+        default: ""
+
+# Restrict default GITHUB_TOKEN permissions to read-only; individual steps do not
+# need write access to the repository.
+permissions:
+  contents: read
+
+# Only one run per workspace at a time to avoid race conditions on Supabase tables.
+concurrency:
+  group: sovereign-workforce-${{ inputs.workspace_id }}
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    name: Run Agent Workforce
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Python runtime ────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── Dependency caching (keyed on requirements.txt hash) ──────────────────
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('orchestrator/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ── Install orchestrator dependencies ────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r orchestrator/requirements.txt
+
+      # ── Execute the sovereign orchestrator ───────────────────────────────────
+      - name: Run orchestrator
+        id: orchestrator
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CHATGPT_API_KEY: ${{ secrets.CHATGPT_API_KEY }}
+          ORCHESTRATOR_API_KEY: ${{ secrets.ORCHESTRATOR_API_KEY }}
+          INPUT_PROMPT: ${{ inputs.prompt }}
+          INPUT_PROJECT_ID: ${{ inputs.project_id }}
+          INPUT_WORKSPACE_ID: ${{ inputs.workspace_id }}
+          INPUT_TASK_ID: ${{ inputs.task_id }}
+          INPUT_AGENT_IDS: ${{ inputs.agent_ids }}
+        run: |
+          python orchestrator/main.py
+          echo "orchestrator_exit=$?" >> "$GITHUB_OUTPUT"
+
+      # ── Send completion webhook to Supabase Edge Function ────────────────────
+      # The Edge Function (orchestrator-webhook) verifies the HMAC-SHA256 signature
+      # before updating the agent_tasks row.
+      - name: Notify webhook on success
+        if: success()
+        env:
+          ORCHESTRATOR_API_KEY: ${{ secrets.ORCHESTRATOR_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          INPUT_TASK_ID: ${{ inputs.task_id }}
+          INPUT_WORKSPACE_ID: ${{ inputs.workspace_id }}
+        run: |
+          python - <<'EOF'
+          import hashlib, hmac, json, os, urllib.request, urllib.error
+
+          supabase_url   = os.environ["SUPABASE_URL"].rstrip("/")
+          api_key        = os.environ["ORCHESTRATOR_API_KEY"].encode()
+          task_id        = os.environ["INPUT_TASK_ID"]
+          workspace_id   = os.environ["INPUT_WORKSPACE_ID"]
+
+          payload = json.dumps({
+              "task_id":      task_id,
+              "workspace_id": workspace_id,
+              "status":       "completed",
+              "run_url":      f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          }).encode()
+
+          signature = "sha256=" + hmac.new(api_key, payload, hashlib.sha256).hexdigest()
+
+          req = urllib.request.Request(
+              f"{supabase_url}/functions/v1/orchestrator-webhook",
+              data=payload,
+              headers={
+                  "Content-Type":       "application/json",
+                  "x-hub-signature-256": signature,
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  print(f"Webhook accepted: {resp.status}")
+          except urllib.error.HTTPError as exc:
+              print(f"Webhook HTTP error {exc.code}: {exc.read().decode()}")
+              raise
+          EOF
+
+      - name: Notify webhook on failure
+        if: failure()
+        env:
+          ORCHESTRATOR_API_KEY: ${{ secrets.ORCHESTRATOR_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          INPUT_TASK_ID: ${{ inputs.task_id }}
+          INPUT_WORKSPACE_ID: ${{ inputs.workspace_id }}
+        run: |
+          python - <<'EOF'
+          import hashlib, hmac, json, os, urllib.request, urllib.error
+
+          supabase_url   = os.environ["SUPABASE_URL"].rstrip("/")
+          api_key        = os.environ["ORCHESTRATOR_API_KEY"].encode()
+          task_id        = os.environ["INPUT_TASK_ID"]
+          workspace_id   = os.environ["INPUT_WORKSPACE_ID"]
+
+          payload = json.dumps({
+              "task_id":      task_id,
+              "workspace_id": workspace_id,
+              "status":       "failed",
+              "run_url":      f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          }).encode()
+
+          signature = "sha256=" + hmac.new(api_key, payload, hashlib.sha256).hexdigest()
+
+          req = urllib.request.Request(
+              f"{supabase_url}/functions/v1/orchestrator-webhook",
+              data=payload,
+              headers={
+                  "Content-Type":       "application/json",
+                  "x-hub-signature-256": signature,
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  print(f"Webhook accepted: {resp.status}")
+          except urllib.error.HTTPError as exc:
+              print(f"Webhook HTTP error {exc.code}: {exc.read().decode()}")
+          EOF
